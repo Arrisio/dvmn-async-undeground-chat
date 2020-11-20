@@ -104,15 +104,14 @@ async def process_message_sending(
 
     async with init_chat_connection(host, port, connection_timeout) as (reader, writer):
         await authorize(chat_token, reader, writer)
-        await submit_message(message, reader)
+        await submit_message(message, writer)
 
         logger.bind(name="prod_logger").debug(message)
 
 
 @click.command()
 @click.option(
-    "-m", "--message", default="""всем чмоки\nв этом чате""", help="text to post"
-)
+    "-m", "--message", required=True , help="text to post")
 @click.option("-t", "--chat_token", envvar="CHAT_TOKEN", help="chat authenticate token")
 @click.option(
     "-u",
