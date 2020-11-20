@@ -57,6 +57,7 @@ class AuthException(Exception):
     pass
 
 
+@logger.catch(exception=json.JSONDecodeError, message="cant understand...!", reraise=True, )
 async def authorize(
     chat_token: str, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
 ):
