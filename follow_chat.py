@@ -1,6 +1,7 @@
 import asyncio
 import sys
 import socket
+from anyio import create_task_group, move_on_after, sleep, run, fail_after
 
 import click
 from loguru import logger
@@ -39,33 +40,37 @@ async def chat_connection(
     host: str,
     port: int,
     db: int = 0,
-    connection_timeout: int = 5,
+    connection_timeout: int = 2,
 ) -> (asyncio.StreamReader, asyncio.StreamWriter):
 
     try:
         logger.debug(
             "trying to connect to chat", extra={"host": host, "port": port, "db": db}
         )
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port), connection_timeout
-        )
+        async with fail_after(connection_timeout):
+            reader, writer = await asyncio.open_connection(host, port)
         logger.debug(
             "redis connected successfully",
             extra={"reader": reader.__repr__(), "writer": writer.__repr__()},
         )
-
-    except (ConnectionRefusedError, asyncio.exceptions.TimeoutError, socket.gaierror):
+    except (
+        ConnectionRefusedError,
+        socket.gaierror,
+        TimeoutError,
+    ):
         logger.error(
             "cannot connect to chat server",
             extra={"host": host, "port": port, "db": db},
         )
-        raise
+        exit(0)
 
     try:
         yield reader, writer
     finally:
         writer.close()
         await writer.wait_closed()
+
+    #
 
 
 @click.command()
@@ -76,7 +81,7 @@ async def chat_connection(
     envvar="CHAT_HOST",
     help="chat hostname",
 )
-@click.option("--port", envvar="CHAT_INCOME_MSG_PORT", default=5000)
+@click.option("--port", envvar="CHAT_INCOME_MSG_PORT", default=5001)
 @click.option(
     "--history ",
     "-H",
