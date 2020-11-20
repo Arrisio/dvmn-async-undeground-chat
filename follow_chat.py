@@ -1,18 +1,18 @@
 import asyncio
-import sys
 import socket
-from anyio import create_task_group, move_on_after, sleep, run, fail_after
+import sys
+from contextlib import asynccontextmanager
 from datetime import datetime
 
 import aiofiles
-
 import click
+from anyio import fail_after
 from loguru import logger
-from contextlib import asynccontextmanager
 
 
 class ConnecChatException(Exception):
     pass
+
 
 @asynccontextmanager
 async def chat_connection(
@@ -46,6 +46,19 @@ async def chat_connection(
         writer.close()
         await writer.wait_closed()
 
+
+async def follow_chat(host, port, history_path):
+
+    async with chat_connection(host, port) as (reader, writer):
+        while True:
+            # по поводу отказоустойчивасти: выключил сеть , подождал минуту, включил - все само заработало. Т.е. доп. обработки не требуется
+            income_message_text = (await reader.readline()).decode(encoding="utf8")
+            message_info = (
+                f"[{datetime.now().strftime('%d.%m.%y %H:%M')}] {income_message_text}"
+            )
+            print(message_info)
+            async with aiofiles.open(history_path, "a") as file:
+                await file.write(message_info)
 
 
 @click.command()
@@ -86,21 +99,9 @@ def main(host, port, history_path, log_level):
             )
         )
     except ConnecChatException as e:
-        logger.error('can`t connect to chat', extra={'host': host, 'port': port})
+        logger.error("can`t connect to chat", extra={"host": host, "port": port})
     except FileNotFoundError as e:
-        logger.error('con`t add record to history file', extra={'file': history_path})
-
-
-async def follow_chat(host, port, history_path):
-
-        async with chat_connection(host, port) as (reader, writer):
-            while True:
-                # по поводу отказоустойчивасти: выключил сеть , подождал минуту, включил - все само заработало. Т.е. доп. обработки не требуется
-                income_message_text = (await reader.readline()).decode(encoding="utf8")
-                message_info = f"[{datetime.now().strftime('%d.%m.%y %H:%M')}] {income_message_text}"
-                print(message_info)
-                async with aiofiles.open(history_path, 'a') as file:
-                    await file.write(message_info)
+        logger.error("con`t add record to history file", extra={"file": history_path})
 
 
 if __name__ == "__main__":
