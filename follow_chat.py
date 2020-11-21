@@ -1,50 +1,12 @@
 import asyncio
-import socket
 import sys
-from contextlib import asynccontextmanager
 from datetime import datetime
 
 import aiofiles
 import click
-from anyio import fail_after
 from loguru import logger
 
-
-class ConnecChatException(Exception):
-    pass
-
-
-@asynccontextmanager
-async def chat_connection(
-    host: str,
-    port: int,
-    db: int = 0,
-    connection_timeout: int = 2,
-) -> (asyncio.StreamReader, asyncio.StreamWriter):
-
-    try:
-        logger.debug(
-            "trying to connect to chat", extra={"host": host, "port": port, "db": db}
-        )
-        async with fail_after(connection_timeout):
-            reader, writer = await asyncio.open_connection(host, port)
-        logger.debug(
-            "redis connected successfully",
-            extra={"reader": reader.__repr__(), "writer": writer.__repr__()},
-        )
-    except (
-        ConnectionRefusedError,
-        socket.gaierror,
-        asyncio.exceptions.CancelledError,
-        TimeoutError,
-    ):
-        raise ConnecChatException()
-
-    try:
-        yield reader, writer
-    finally:
-        writer.close()
-        await writer.wait_closed()
+from utils import chat_connection, ConnectChatException
 
 
 async def follow_chat(host, port, history_path):
@@ -57,8 +19,8 @@ async def follow_chat(host, port, history_path):
                 f"[{datetime.now().strftime('%d.%m.%y %H:%M')}] {income_message_text}"
             )
             print(message_info)
-            async with aiofiles.open(history_path, "a") as file:
-                await file.write(message_info)
+            async with aiofiles.open(history_path, "a") as fh:
+                await fh.write(message_info)
 
 
 @click.command()
@@ -98,8 +60,9 @@ def main(host, port, history_path, log_level):
                 history_path=history_path,
             )
         )
-    except ConnecChatException as e:
+    except ConnectChatException as e:
         logger.error("can`t connect to chat", extra={"host": host, "port": port})
+
     except FileNotFoundError as e:
         logger.error("con`t add record to history file", extra={"file": history_path})
 

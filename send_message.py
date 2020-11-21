@@ -2,36 +2,26 @@ import asyncio
 import json
 import socket
 import sys
-from contextlib import asynccontextmanager
 
 import click
 from loguru import logger
-from typing import Tuple
+
+from utils import chat_connection, ConnectChatException
 
 
-@asynccontextmanager
-async def init_chat_connection(
-    host: str, port: int, connection_timeout: int
-) -> Tuple[asyncio.StreamReader, asyncio.StreamWriter]:
-    logger.debug("trying to connect to server", extra={"host": host, "port": port})
-    reader, writer = await asyncio.wait_for(
-        asyncio.open_connection(host, port), connection_timeout
-    )
-    init_response = (await reader.readline()).decode()
-
-    logger.debug(
-        "get init response from server", extra={"init_response": init_response}
-    )
-    try:
-        yield reader, writer
-    finally:
-        writer.close()
-        await writer.wait_closed()
+class ParseServerResponseException(Exception):
+    pass
 
 
 async def register(
     user_name: str, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
 ):
+    init_response = (await reader.readline()).decode()
+    logger.debug(
+        "get init response from server",
+        extra={"init_response": init_response},
+    )
+
     logger.debug("start registering user", extra={"user_name": user_name})
     writer.write(b"\n")
     await writer.drain()
@@ -45,34 +35,36 @@ async def register(
 
     try:
         return json.loads(register_response)["account_hash"]
+
+    # по поводу " ¬ысушите код " и "¬ loguru есть декоратор на этот случай."
+    # думаю, такой вариант наиболее зрелый
     except json.JSONDecodeError:
-        logger.error(
-            f"Can not parse to JSON the server response",
-            extra={"auth_response": register_response},
-        )
-        raise
+        raise ParseServerResponseException("error while registration")
 
 
 class AuthException(Exception):
     pass
 
 
-@logger.catch(exception=json.JSONDecodeError, message="cant understand...!", reraise=True, )
 async def authorize(
     chat_token: str, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
 ):
+    init_response = (await reader.readline()).decode()
+    logger.debug(
+        "get init response from server",
+        extra={"init_response": init_response},
+    )
+
     writer.write(f"{chat_token}\n".encode())
     await writer.drain()
 
     auth_response = (await reader.readline()).decode()
+
     try:
         auth_result = json.loads(auth_response)
+
     except json.JSONDecodeError:
-        logger.error(
-            f"Can not parse to JSON the server response",
-            extra={"auth_response": auth_response},
-        )
-        raise
+        raise ParseServerResponseException("error while auth")
 
     logger.debug("receives auth response", extra=auth_result)
     if not auth_result:
@@ -88,22 +80,17 @@ async def submit_message(message, writer):
 
 
 async def process_message_sending(
-    message: str,
-    chat_token: str,
-    user_name: str,
-    host: str,
-    port: int,
-    connection_timeout: int,
+    message: str, chat_token: str, user_name: str, host: str, port: int,
 ):
 
     if not chat_token:
-        async with init_chat_connection(host, port, connection_timeout) as (
+        async with chat_connection(host, port) as (
             reader,
             writer,
         ):
             chat_token = await register(user_name, reader, writer)
 
-    async with init_chat_connection(host, port, connection_timeout) as (reader, writer):
+    async with chat_connection(host, port) as (reader, writer):
         await authorize(chat_token, reader, writer)
         await submit_message(message, writer)
 
@@ -111,8 +98,7 @@ async def process_message_sending(
 
 
 @click.command()
-@click.option(
-    "-m", "--message", required=True , help="text to post")
+@click.option("-m", "--message", required=True, help="text to post")
 @click.option("-t", "--chat_token", envvar="CHAT_TOKEN", help="chat authenticate token")
 @click.option(
     "-u",
@@ -126,21 +112,8 @@ async def process_message_sending(
 )
 @click.option("--port", envvar="CHAT_PUBLISH_MSG_PORT", default=5050)
 @click.option("-l", "--log_level", envvar="LOG_LEVEL", default="INFO")
-@click.option(
-    "-to",
-    "--connection_timeout",
-    envvar="CONNECTION_TIMEOUT",
-    default=3,
-    help="chat server connection timeout",
-)
 def main(
-    message: str,
-    chat_token: str,
-    user_name: str,
-    host: str,
-    port: int,
-    log_level: str,
-    connection_timeout: int,
+    message: str, chat_token: str, user_name: str, host: str, port: int, log_level: str,
 ):
     logger.configure(
         handlers=[
@@ -160,18 +133,17 @@ def main(
     )
 
     try:
-        asyncio.run(
-            process_message_sending(
-                message, chat_token, user_name, host, port, connection_timeout
-            )
-        )
+        asyncio.run(process_message_sending(message, chat_token, user_name, host, port))
+
+    except ConnectChatException as e:
+        logger.error("can`t connect to chat", extra={"host": host, "port": port})
+
     except AuthException:
         logger.bind(name="prod_logger").error("chat token is not valid. exiting ...")
         return
 
-    except (asyncio.TimeoutError, socket.gaierror):
-        logger.bind(name="prod_logger").error("can`t connect to chat server")
-        return
+    except ParseServerResponseException as e:
+        logger.error(e.__repr__(), extra={"host": host, "port": port})
 
 
 if __name__ == "__main__":
