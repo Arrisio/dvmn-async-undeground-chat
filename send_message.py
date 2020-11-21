@@ -36,8 +36,8 @@ async def register(
     try:
         return json.loads(register_response)["account_hash"]
 
-    # по поводу " Высушите код " и "В loguru есть декоратор на этот случай."
-    # думаю, такой вариант наиболее зрелый
+    # РїРѕ РїРѕРІРѕРґСѓ " Р’С‹СЃСѓС€РёС‚Рµ РєРѕРґ " Рё "Р’ loguru РµСЃС‚СЊ РґРµРєРѕСЂР°С‚РѕСЂ РЅР° СЌС‚РѕС‚ СЃР»СѓС‡Р°Р№."
+    # РґСѓРјР°СЋ, С‚Р°РєРѕР№ РІР°СЂРёР°РЅС‚ РЅР°РёР±РѕР»РµРµ Р·СЂРµР»С‹Р№
     except json.JSONDecodeError:
         raise ParseServerResponseException("error while registration")
 
